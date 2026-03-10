@@ -547,13 +547,6 @@ const syncDriverPendingRides = async (session: SessionData, options?: { force?: 
     return;
   }
 
-  const locationBlocked =
-    driverLocationStatus === "denied" || driverLocationStatus === "unsupported";
-  if (locationBlocked) {
-    driverRequestStore = [];
-    return;
-  }
-
   const now = Date.now();
   if (!options?.force && now - driverBackfillFetchedAt < 4000) {
     return;
@@ -1478,25 +1471,29 @@ export const driverApi = {
     const elapsed = driverOnlineSince ? Date.now() - driverOnlineSince : 0;
     const minutes = Math.max(0, Math.floor(elapsed / 60000));
     const onlineTime = `${String(Math.floor(minutes / 60)).padStart(2, "0")}h ${String(minutes % 60).padStart(2, "0")}m`;
-    const hasCaptainLocation = Array.isArray(captain.location?.coordinates) && captain.location.coordinates.length === 2;
+    const [captainLng, captainLtd] = captain.location?.coordinates || [];
+    const hasCaptainLocation =
+      Number.isFinite(captainLng) &&
+      Number.isFinite(captainLtd) &&
+      (Math.abs(Number(captainLng)) > 0.0001 || Math.abs(Number(captainLtd)) > 0.0001);
     const locationBlocked =
       driverLocationStatus === "denied" || driverLocationStatus === "unsupported";
     const locationMessage =
-      locationBlocked || !hasCaptainLocation ? "Enable location to receive rides." : null;
+      locationBlocked || !hasCaptainLocation
+        ? "Enable location for nearby matching. Showing available rides anyway."
+        : null;
 
     if (
       session?.token &&
-      session.user.accountType === "driver" &&
-      !locationBlocked
+      session.user.accountType === "driver"
     ) {
       await syncDriverPendingRides(session);
     }
 
     return {
-      requests: (locationMessage ? [] : driverRequestStore)
+      requests: driverRequestStore
         .filter((ride) => ride.status === "pending")
         .map((ride) => {
-          const [captainLng, captainLtd] = captain.location?.coordinates || [];
           const [pickupLng, pickupLtd] = ride.pickupLocation?.coordinates || [];
           const hasRealtimeCoordinates =
             Number.isFinite(captainLng) &&

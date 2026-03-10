@@ -390,20 +390,36 @@ module.exports.getPendingRidesForCaptain = async (req, res) => {
     }
 
     const [lng, ltd] = captain.location?.coordinates || [];
-    if (!Number.isFinite(lng) || !Number.isFinite(ltd)) {
-      return res.status(200).json({ rides: [] });
-    }
+    const hasUsableCaptainLocation =
+      Number.isFinite(lng) &&
+      Number.isFinite(ltd) &&
+      (Math.abs(Number(lng)) > 0.0001 || Math.abs(Number(ltd)) > 0.0001);
+
+    const baseRideQuery = {
+      status: "pending",
+      vehicle: captain.vehicle?.type,
+    };
+
+    const ridesQuery = hasUsableCaptainLocation
+      ? {
+          ...baseRideQuery,
+          $or: [
+            {
+              pickupLocation: {
+                $geoWithin: {
+                  $centerSphere: [[lng, ltd], radiusKm / 6371],
+                },
+              },
+            },
+            {
+              pickupLocation: { $exists: false },
+            },
+          ],
+        }
+      : baseRideQuery;
 
     const rides = await rideModel
-      .find({
-        status: "pending",
-        vehicle: captain.vehicle?.type,
-        pickupLocation: {
-          $geoWithin: {
-            $centerSphere: [[lng, ltd], radiusKm / 6371],
-          },
-        },
-      })
+      .find(ridesQuery)
       .sort({ createdAt: -1 })
       .limit(30)
       .populate("user", "fullname phone");
