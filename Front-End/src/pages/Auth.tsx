@@ -1,0 +1,342 @@
+import { useEffect, useState, type ReactNode } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { Mail, Lock, User, Eye, EyeOff, Car, type LucideIcon } from "lucide-react";
+import MagneticButton from "@/components/ui/MagneticButton";
+import { cn } from "@/lib/utils";
+import { ApiError, authApi, toApiErrorMessage } from "@/lib/api";
+import { getSession, setSession } from "@/lib/session";
+import { toast } from "@/components/ui/sonner";
+
+const FloatingInput = ({ icon: Icon, label, type = "text", value, onChange }: {
+  icon: LucideIcon; label: string; type?: string; value: string; onChange: (v: string) => void;
+}) => {
+  const [focused, setFocused] = useState(false);
+  const [showPw, setShowPw] = useState(false);
+  const isPassword = type === "password";
+  const active = focused || value.length > 0;
+
+  return (
+    <div className="relative">
+      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground z-10">
+        <Icon size={18} />
+      </div>
+      <motion.label
+        className="absolute left-11 pointer-events-none text-muted-foreground z-10"
+        animate={{
+          top: active ? "6px" : "50%",
+          y: active ? 0 : "-50%",
+          fontSize: active ? "10px" : "14px",
+        }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      >
+        {label}
+      </motion.label>
+      <input
+        type={isPassword && !showPw ? "password" : "text"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className={cn(
+          "w-full h-14 pl-11 pr-12 pt-4 pb-1 rounded-xl bg-secondary/50 border text-foreground text-sm",
+          "outline-none transition-all duration-300",
+          focused ? "border-primary glow-emerald" : "border-border"
+        )}
+      />
+      {isPassword && (
+        <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground">
+          {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const AppleLogo = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-current">
+    <path d="M16.37 12.24c.03 3.24 2.83 4.32 2.86 4.33-.02.08-.45 1.54-1.47 3.05-.88 1.3-1.8 2.59-3.24 2.62-1.42.03-1.88-.84-3.5-.84-1.62 0-2.14.82-3.46.87-1.39.05-2.45-1.39-3.34-2.68-1.82-2.63-3.21-7.45-1.34-10.69.93-1.61 2.58-2.63 4.37-2.66 1.36-.03 2.65.92 3.5.92.84 0 2.42-1.14 4.08-.98.69.03 2.62.28 3.86 2.09-.1.06-2.3 1.34-2.32 3.97ZM13.73 4.42c.74-.9 1.24-2.15 1.1-3.42-1.07.04-2.36.72-3.13 1.62-.69.79-1.29 2.06-1.13 3.27 1.2.09 2.42-.61 3.16-1.47Z" />
+  </svg>
+);
+
+const GoogleLogo = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5">
+    <path fill="#EA4335" d="M12 10.2v3.96h5.52c-.24 1.27-.96 2.35-2.05 3.07l3.31 2.57c1.93-1.78 3.04-4.39 3.04-7.48 0-.72-.06-1.42-.2-2.12H12Z" />
+    <path fill="#34A853" d="M12 22c2.76 0 5.07-.91 6.76-2.47l-3.31-2.57c-.92.62-2.09.99-3.45.99-2.65 0-4.9-1.79-5.71-4.19H2.87v2.65A10 10 0 0 0 12 22Z" />
+    <path fill="#FBBC05" d="M6.29 13.76a6 6 0 0 1 0-3.52V7.59H2.87a10 10 0 0 0 0 8.82l3.42-2.65Z" />
+    <path fill="#4285F4" d="M12 6.05c1.5 0 2.85.52 3.91 1.53l2.93-2.94C17.06 2.98 14.76 2 12 2a10 10 0 0 0-9.13 5.59l3.42 2.65C7.1 7.84 9.35 6.05 12 6.05Z" />
+  </svg>
+);
+
+const FacebookLogo = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-5 w-5 fill-current">
+    <path d="M22 12a10 10 0 1 0-11.56 9.88v-6.99H7.9V12h2.54V9.8c0-2.5 1.5-3.88 3.79-3.88 1.09 0 2.23.2 2.23.2v2.46H15.2c-1.24 0-1.63.77-1.63 1.56V12h2.77l-.44 2.89h-2.33v6.99A10 10 0 0 0 22 12Z" />
+  </svg>
+);
+
+const SocialButton = ({ icon, label, note, disabled = false }: { icon: ReactNode; label: string; note?: string; disabled?: boolean }) => (
+  <motion.button
+    type="button"
+    disabled={disabled}
+    whileHover={!disabled ? { scale: 1.03 } : undefined}
+    whileTap={!disabled ? { scale: 0.97 } : undefined}
+    className={cn(
+      "flex items-center justify-center gap-2 h-12 rounded-xl border border-border bg-secondary/30 text-sm font-medium text-foreground transition-colors flex-1",
+      disabled ? "opacity-70 cursor-not-allowed" : "hover:border-primary/50"
+    )}
+  >
+    <span className="inline-flex items-center justify-center">{icon}</span>
+    <span className="hidden sm:flex flex-col leading-tight text-left">
+      <span>{label}</span>
+      {note && <span className="text-[10px] text-muted-foreground mt-0.5">({note})</span>}
+    </span>
+  </motion.button>
+);
+
+type AccountType = "rider" | "driver";
+
+const Auth = () => {
+  const [isLogin, setIsLogin] = useState(true);
+  const [accountType, setAccountType] = useState<AccountType>("rider");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [verificationEmail, setVerificationEmail] = useState("");
+  const [verificationAccountType, setVerificationAccountType] = useState<AccountType>("rider");
+  const [showVerification, setShowVerification] = useState(false);
+  const [verificationLoading, setVerificationLoading] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const session = getSession();
+    if (session?.user?.accountType) {
+      navigate(session.user.accountType === "driver" ? "/driver" : "/rider", { replace: true });
+    }
+  }, [navigate]);
+
+  const isEmailNotVerifiedError = (error: unknown) => {
+    if (!(error instanceof ApiError)) return false;
+
+    const details = error.details;
+    if (details && typeof details === "object" && "code" in details) {
+      const code = String((details as { code?: unknown }).code || "").trim().toUpperCase();
+      if (code === "EMAIL_NOT_VERIFIED") {
+        return true;
+      }
+    }
+
+    return /verify your email/i.test(error.message);
+  };
+
+  const handleResendVerification = async () => {
+    const targetEmail = verificationEmail || email.trim().toLowerCase();
+    if (!targetEmail) {
+      toast.error("Enter your email to resend verification link");
+      return;
+    }
+
+    setVerificationLoading(true);
+    try {
+      await authApi.resendVerification({
+        email: targetEmail,
+        accountType: verificationAccountType || accountType,
+      });
+      toast.success("Verification link sent. Check your inbox and spam folder.");
+    } catch (error) {
+      toast.error(toApiErrorMessage(error, "Failed to send verification link."));
+    } finally {
+      setVerificationLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!email || !password || (!isLogin && !name)) {
+      toast.error("Please fill in all required fields");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      if (isLogin) {
+        const authPayload = await authApi.login({ email, password, accountType });
+
+        setSession({
+          token: authPayload.token,
+          user: authPayload.user,
+        });
+        setShowVerification(false);
+        setVerificationEmail("");
+
+        navigate(authPayload.redirectPath, { replace: true });
+        return;
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      const signupPayload = await authApi.signup({ name, email: normalizedEmail, password, accountType });
+      const needsVerification = signupPayload.requiresEmailVerification || !signupPayload.token;
+
+      if (!needsVerification && signupPayload.token) {
+        setSession({
+          token: signupPayload.token,
+          user: signupPayload.user,
+        });
+        setShowVerification(false);
+        setVerificationEmail("");
+
+        navigate(signupPayload.redirectPath, { replace: true });
+        return;
+      }
+
+      setIsLogin(true);
+      setShowVerification(true);
+      setVerificationEmail(normalizedEmail);
+      setVerificationAccountType(accountType);
+      toast.success(
+        "Registration started. Check your email to verify your account before signing in."
+      );
+    } catch (error) {
+      if (isLogin && isEmailNotVerifiedError(error)) {
+        const normalizedEmail = email.trim().toLowerCase();
+        setVerificationEmail(normalizedEmail);
+        setVerificationAccountType(accountType);
+        setShowVerification(true);
+        toast.error(
+          "Account not verified. Check your email for the verification link or use Resend Verification Link."
+        );
+        return;
+      }
+
+      toast.error(toApiErrorMessage(error, "Authentication failed"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden grain-texture">
+      {/* Background */}
+      <div className="fixed inset-0 bg-background">
+        {/* Subtle emerald radial ambient glow */}
+        <div className="absolute bottom-1/4 -right-32 w-96 h-96 rounded-full bg-[hsl(var(--neon-emerald-light)/0.06)] blur-[120px]" />
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 30, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ type: "spring", stiffness: 200, damping: 20 }}
+        className="relative z-10 w-full max-w-md"
+      >
+        <div className="glass rounded-3xl p-8 glow-emerald-soft">
+          {/* Logo */}
+          <div className="flex items-center justify-center gap-3 mb-8">
+            <div className="w-12 h-12 rounded-2xl gradient-primary flex items-center justify-center">
+              <Car size={24} className="text-primary-foreground" />
+            </div>
+            <h1 className="text-3xl font-display font-bold gradient-text">RideX</h1>
+          </div>
+
+          <div className="mb-6">
+            <p className="text-xs font-medium text-muted-foreground mb-2 px-1">Continue as</p>
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-secondary/50 p-1">
+              {[
+                { id: "rider" as const, label: "Customer (Rider)" },
+                { id: "driver" as const, label: "Driver" },
+              ].map((type) => (
+                <button
+                  key={type.id}
+                  type="button"
+                  onClick={() => setAccountType(type.id)}
+                  className={cn(
+                    "h-10 rounded-lg text-sm font-medium transition-colors",
+                    accountType === type.id
+                      ? "bg-primary text-primary-foreground"
+                      : "text-foreground hover:bg-secondary"
+                  )}
+                >
+                  {type.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <AnimatePresence mode="wait">
+            <motion.form
+              key={`${isLogin ? "login" : "signup"}-${accountType}`}
+              initial={{ opacity: 0, x: isLogin ? -20 : 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: isLogin ? 20 : -20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              onSubmit={handleSubmit}
+              className="space-y-4"
+            >
+              {!isLogin && (
+                <FloatingInput icon={User} label="Full Name" value={name} onChange={setName} />
+              )}
+              <FloatingInput icon={Mail} label="Email Address" value={email} onChange={setEmail} />
+              <FloatingInput icon={Lock} label="Password" type="password" value={password} onChange={setPassword} />
+
+              <MagneticButton type="submit" loading={loading} className="w-full h-12 text-base">
+                {isLogin ? `Sign In as ${accountType === "driver" ? "Driver" : "Rider"}` : `Create ${accountType === "driver" ? "Driver" : "Rider"} Account`}
+              </MagneticButton>
+
+              {showVerification && isLogin && verificationAccountType === accountType && (
+                <div className="rounded-xl border border-border bg-secondary/30 p-3 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Verify <span className="text-foreground">{verificationEmail}</span> by clicking the
+                    email link sent to your inbox.
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={verificationLoading}
+                      className={cn(
+                        "h-10 rounded-xl border border-border bg-secondary/30 text-sm font-medium transition-colors",
+                        verificationLoading ? "opacity-70 pointer-events-none" : "hover:border-primary/50"
+                      )}
+                    >
+                      Resend Verification Link
+                    </button>
+                  </div>
+                </div>
+              )}
+            </motion.form>
+          </AnimatePresence>
+
+          <div className="flex items-center gap-3 my-6">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-xs text-muted-foreground">or continue with</span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          <div className="flex gap-3">
+            <SocialButton icon={<AppleLogo />} label="Apple" note="Coming soon" disabled />
+            <SocialButton icon={<GoogleLogo />} label="Google" />
+            <SocialButton icon={<FacebookLogo />} label="Facebook" note="Coming soon" disabled />
+          </div>
+
+          <div className="flex rounded-xl bg-secondary/50 p-1 mt-6">
+            {["Login", "Sign Up"].map((tab, i) => (
+              <button
+                key={tab}
+                onClick={() => setIsLogin(i === 0)}
+                className={cn(
+                  "relative flex-1 py-2.5 text-sm font-medium rounded-lg transition-colors",
+                  (i === 0 ? isLogin : !isLogin) ? "gradient-primary text-primary-foreground" : "text-foreground"
+                )}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+export default Auth;
