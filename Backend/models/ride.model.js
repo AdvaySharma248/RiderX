@@ -34,6 +34,21 @@ const rideSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    destinationLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+      },
+      coordinates: {
+        type: [Number],
+        validate: {
+          validator(value) {
+            return !value || value.length === 2;
+          },
+          message: "destinationLocation.coordinates must contain [lng, lat]",
+        },
+      },
+    },
     stops: [
       {
         type: String,

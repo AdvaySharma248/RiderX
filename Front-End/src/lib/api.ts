@@ -14,18 +14,25 @@ type HttpMethod = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 type BackendUserType = "user" | "captain";
 type BackendVehicleType = "auto" | "car" | "bike";
 type DriverLocationStatus = "unknown" | "enabled" | "denied" | "unsupported";
+type GeoPoint = {
+  type?: string;
+  coordinates?: number[];
+};
+
+export type MapCoordinates = {
+  lat: number;
+  lon: number;
+};
 
 type BackendRide = {
   _id: string;
   user?: string | { _id?: string; fullname?: { firstname?: string; lastname?: string }; phone?: string };
   captain?: string | { fullname?: { firstname?: string; lastname?: string }; vehicle?: { number?: string } };
   pickup?: string;
-  pickupLocation?: {
-    type?: string;
-    coordinates?: number[];
-  };
+  pickupLocation?: GeoPoint;
   stops?: string[];
   destination?: string;
+  destinationLocation?: GeoPoint;
   fare?: number;
   fareBeforeDiscount?: number;
   promoCode?: string;
@@ -259,6 +266,20 @@ const estimateEtaSecondsFromDistance = (
   const rawSeconds = Math.round(meters / metersPerSecond) + bufferSeconds;
   return clamp(rawSeconds, minSeconds, maxSeconds);
 };
+
+const toMapCoordinates = (coordinates?: number[] | null): MapCoordinates | null => {
+  const [lon, lat] = coordinates || [];
+  if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+    return null;
+  }
+
+  return {
+    lat: Number(lat),
+    lon: Number(lon),
+  };
+};
+
+const toMapCoordinatesFromGeoPoint = (point?: GeoPoint | null) => toMapCoordinates(point?.coordinates);
 
 const toFrontendRideId = (vehicle?: BackendVehicleType) => {
   if (vehicle === "bike") return "moto";
@@ -793,6 +814,9 @@ export interface DriverActiveRide {
   passenger: string;
   pickup: string;
   dropoff: string;
+  driverCoords: MapCoordinates | null;
+  pickupCoords: MapCoordinates | null;
+  dropoffCoords: MapCoordinates | null;
   etaSeconds: number;
   rideStatus: "accepted" | "ongoing";
   canCancel: boolean;
@@ -998,6 +1022,31 @@ const isToday = (value?: string) => {
   if (Number.isNaN(d.getTime())) return false;
   const n = new Date();
   return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+};
+
+export const mapApi = {
+  getCoordinates: async (address: string): Promise<MapCoordinates | null> => {
+    const safeAddress = address.trim();
+    if (safeAddress.length < 3) {
+      return null;
+    }
+
+    try {
+      const response = await request<{ ltd?: number; lng?: number }>(
+        `/map/get-coordinates?address=${encodeURIComponent(safeAddress)}`
+      );
+      if (!Number.isFinite(response.ltd) || !Number.isFinite(response.lng)) {
+        return null;
+      }
+
+      return {
+        lat: Number(response.ltd),
+        lon: Number(response.lng),
+      };
+    } catch {
+      return null;
+    }
+  },
 };
 
 const getCaptainDetailsForRide = async (rideId: string) => {
@@ -1648,7 +1697,10 @@ export const driverApi = {
     const passenger = await getPassengerForRide(active);
     const rideStatus = active.status === "ongoing" ? "ongoing" : "accepted";
     const [captainLng, captainLtd] = captain.location?.coordinates || [];
+    const driverCoords = toMapCoordinates(captain.location?.coordinates);
     const [pickupLng, pickupLtd] = active.pickupLocation?.coordinates || [];
+    const pickupCoords = toMapCoordinatesFromGeoPoint(active.pickupLocation);
+    const dropoffCoords = toMapCoordinatesFromGeoPoint(active.destinationLocation);
     const hasRealtimeCoordinates =
       Number.isFinite(captainLng) &&
       Number.isFinite(captainLtd) &&
@@ -1687,6 +1739,9 @@ export const driverApi = {
       passenger,
       pickup: active.pickup || "Pickup",
       dropoff: active.destination || "Destination",
+      driverCoords,
+      pickupCoords,
+      dropoffCoords,
       etaSeconds,
       rideStatus,
       canCancel: rideStatus === "accepted",
@@ -1798,6 +1853,9 @@ export const driverApi = {
       passenger: await getPassengerForRide(ride),
       pickup: ride.pickup || "Pickup",
       dropoff: ride.destination || "Destination",
+      driverCoords: null,
+      pickupCoords: toMapCoordinatesFromGeoPoint(ride.pickupLocation),
+      dropoffCoords: toMapCoordinatesFromGeoPoint(ride.destinationLocation),
       etaSeconds: estimateEtaSecondsFromDistance(
         Number(ride.distance || 0) > 0 ? Math.max(500, Math.round(Number(ride.distance || 0) * 0.25)) : 1800,
         {
@@ -1829,6 +1887,9 @@ export const driverApi = {
       passenger: await getPassengerForRide(ride),
       pickup: ride.pickup || "Pickup",
       dropoff: ride.destination || "Destination",
+      driverCoords: null,
+      pickupCoords: toMapCoordinatesFromGeoPoint(ride.pickupLocation),
+      dropoffCoords: toMapCoordinatesFromGeoPoint(ride.destinationLocation),
       etaSeconds: estimateEtaSecondsFromDistance(
         Number(ride.distance || 0) > 0 ? Math.max(1000, Math.round(Number(ride.distance || 0) * 0.6)) : 4200,
         {

@@ -348,6 +348,7 @@ module.exports.createRide = async ({
     });
 
     const normalizedPickupCoordinates = normalizeCoordinates(pickupCoordinates);
+    const normalizedDestinationCoordinates = normalizeCoordinates(destinationCoordinates);
     const pickupCoordinatesForRide =
       normalizedPickupCoordinates
         ? {
@@ -355,10 +356,28 @@ module.exports.createRide = async ({
             ltd: normalizedPickupCoordinates.lat,
           }
         : await mapService.getAddressCoordinate(pickup);
+    let destinationCoordinatesForRide =
+      normalizedDestinationCoordinates
+        ? {
+            lng: normalizedDestinationCoordinates.lon,
+            ltd: normalizedDestinationCoordinates.lat,
+          }
+        : null;
+
+    if (!destinationCoordinatesForRide) {
+      try {
+        destinationCoordinatesForRide = await mapService.getAddressCoordinate(destination);
+      } catch {
+        destinationCoordinatesForRide = null;
+      }
+    }
 
     const hasValidPickupCoordinates =
       Number.isFinite(pickupCoordinatesForRide?.lng) &&
       Number.isFinite(pickupCoordinatesForRide?.ltd);
+    const hasValidDestinationCoordinates =
+      Number.isFinite(destinationCoordinatesForRide?.lng) &&
+      Number.isFinite(destinationCoordinatesForRide?.ltd);
 
     const ride = await rideModel.create({
       user,
@@ -370,6 +389,12 @@ module.exports.createRide = async ({
           }
         : undefined,
       destination,
+      destinationLocation: hasValidDestinationCoordinates
+        ? {
+            type: "Point",
+            coordinates: [destinationCoordinatesForRide.lng, destinationCoordinatesForRide.ltd],
+          }
+        : undefined,
       stops: cleanStops,
       otp: getOtp(6),
       fareBeforeDiscount: farePreview.fareBeforeDiscount,

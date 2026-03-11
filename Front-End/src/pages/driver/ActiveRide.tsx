@@ -3,19 +3,30 @@ import { motion } from "framer-motion";
 import { Clock3, MapPin, Phone, MessageCircle, ShieldAlert } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { driverApi, toApiErrorMessage } from "@/lib/api";
+import RiderMap from "@/components/map/RiderMap";
+import { driverApi, mapApi, toApiErrorMessage, type MapCoordinates } from "@/lib/api";
 import { toast } from "@/components/ui/sonner";
 
 const DriverActiveRidePage = () => {
   const queryClient = useQueryClient();
   const [eta, setEta] = useState(0);
   const [rideOtp, setRideOtp] = useState("");
+  const [fallbackPickupCoords, setFallbackPickupCoords] = useState<MapCoordinates | null>(null);
+  const [fallbackDropoffCoords, setFallbackDropoffCoords] = useState<MapCoordinates | null>(null);
+  const [isResolvingMap, setIsResolvingMap] = useState(false);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["driver", "active-ride"],
     queryFn: driverApi.getActiveRide,
     refetchInterval: 3000,
   });
+  const activeRideId = data?.id ?? null;
+  const pickupLabel = data?.pickup ?? "";
+  const dropoffLabel = data?.dropoff ?? "";
+  const pickupLat = data?.pickupCoords?.lat ?? null;
+  const pickupLon = data?.pickupCoords?.lon ?? null;
+  const dropoffLat = data?.dropoffCoords?.lat ?? null;
+  const dropoffLon = data?.dropoffCoords?.lon ?? null;
 
   const startRideMutation = useMutation({
     mutationFn: driverApi.startRide,
@@ -75,6 +86,56 @@ const DriverActiveRidePage = () => {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    if (!activeRideId) {
+      setFallbackPickupCoords(null);
+      setFallbackDropoffCoords(null);
+      setIsResolvingMap(false);
+      return;
+    }
+
+    setFallbackPickupCoords(null);
+    setFallbackDropoffCoords(null);
+
+    const needsPickupCoords = pickupLat === null && pickupLon === null && pickupLabel.trim().length >= 3;
+    const needsDropoffCoords = dropoffLat === null && dropoffLon === null && dropoffLabel.trim().length >= 3;
+
+    if (!needsPickupCoords && !needsDropoffCoords) {
+      setIsResolvingMap(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsResolvingMap(true);
+
+    void Promise.all([
+      needsPickupCoords ? mapApi.getCoordinates(pickupLabel) : Promise.resolve(null),
+      needsDropoffCoords ? mapApi.getCoordinates(dropoffLabel) : Promise.resolve(null),
+    ])
+      .then(([pickupCoords, dropoffCoords]) => {
+        if (cancelled) return;
+        setFallbackPickupCoords(pickupCoords);
+        setFallbackDropoffCoords(dropoffCoords);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsResolvingMap(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeRideId,
+    dropoffLabel,
+    dropoffLat,
+    dropoffLon,
+    pickupLabel,
+    pickupLat,
+    pickupLon,
+  ]);
+
   if (isLoading) {
     return <Skeleton className="h-[420px] rounded-xl" />;
   }
@@ -96,6 +157,9 @@ const DriverActiveRidePage = () => {
   }
 
   const sanitizedOtp = rideOtp.replace(/\D/g, "").slice(0, 6);
+  const pickupCoords = data.pickupCoords || fallbackPickupCoords;
+  const dropoffCoords = data.dropoffCoords || fallbackDropoffCoords;
+  const hasMapCoordinates = Boolean(data.driverCoords || pickupCoords || dropoffCoords);
 
   const handleStartRide = () => {
     if (sanitizedOtp.length !== 6) {
@@ -123,9 +187,24 @@ const DriverActiveRidePage = () => {
 
       <div className="rounded-xl border border-border bg-card p-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="xl:col-span-2 rounded-xl border border-border bg-secondary min-h-[280px] relative overflow-hidden">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_25%,hsl(var(--primary)/0.16),transparent_45%),radial-gradient(circle_at_70%_75%,hsl(var(--primary)/0.1),transparent_45%)]" />
+          {hasMapCoordinates ? (
+            <RiderMap
+              currentLocation={data.driverCoords}
+              pickup={pickupCoords}
+              dropoff={dropoffCoords}
+            />
+          ) : (
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_25%,hsl(var(--primary)/0.16),transparent_45%),radial-gradient(circle_at_70%_75%,hsl(var(--primary)/0.1),transparent_45%)]" />
+          )}
           <div className="absolute top-3 left-3 rounded-md border border-border bg-background/85 px-2.5 py-1 text-xs text-muted-foreground">
             Route monitoring
+          </div>
+          <div className="absolute bottom-3 left-3 right-3 rounded-lg border border-border bg-background/88 px-3 py-2 text-xs text-muted-foreground backdrop-blur-sm">
+            {isResolvingMap
+              ? "Resolving pickup and dropoff coordinates..."
+              : hasMapCoordinates
+                ? "Pickup and dropoff markers are shown live for the accepted ride."
+                : "Pickup or dropoff coordinates are not available for this ride yet."}
           </div>
         </div>
 
