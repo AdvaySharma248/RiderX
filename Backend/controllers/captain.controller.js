@@ -13,7 +13,7 @@ module.exports.registerCaptain = asyncHandler(async (req, res) => {
     return res.status(400).json(errors.array());
   }
 
-  const { fullname, email, password, phone, vehicle } = req.body;
+  const { fullname, email, password, phone, drivingLicenseNumber, vehicle } = req.body;
   const normalizedEmail = String(email || "").trim().toLowerCase();
   const requireEmailVerification =
     String(process.env.REQUIRE_EMAIL_VERIFICATION || "").trim().toLowerCase() === "true";
@@ -66,6 +66,8 @@ module.exports.registerCaptain = asyncHandler(async (req, res) => {
     normalizedEmail,
     password,
     phone,
+    drivingLicenseNumber,
+    vehicle.model,
     vehicle.color,
     vehicle.number,
     vehicle.capacity,

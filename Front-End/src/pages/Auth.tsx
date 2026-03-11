@@ -1,20 +1,40 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Mail, Lock, User, Eye, EyeOff, Car, type LucideIcon } from "lucide-react";
+import {
+  Mail,
+  Lock,
+  User,
+  Eye,
+  EyeOff,
+  Car,
+  Phone,
+  BadgeCheck,
+  CarFront,
+  Palette,
+  Hash,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import MagneticButton from "@/components/ui/MagneticButton";
 import { cn } from "@/lib/utils";
 import { ApiError, authApi, toApiErrorMessage } from "@/lib/api";
 import { getSession, setSession } from "@/lib/session";
 import { toast } from "@/components/ui/sonner";
 
-const FloatingInput = ({ icon: Icon, label, type = "text", value, onChange }: {
-  icon: LucideIcon; label: string; type?: string; value: string; onChange: (v: string) => void;
+const FloatingInput = ({ icon: Icon, label, type = "text", value, onChange, maxLength }: {
+  icon: LucideIcon;
+  label: string;
+  type?: string;
+  value: string;
+  onChange: (v: string) => void;
+  maxLength?: number;
 }) => {
   const [focused, setFocused] = useState(false);
   const [showPw, setShowPw] = useState(false);
   const isPassword = type === "password";
   const active = focused || value.length > 0;
+  const resolvedType = isPassword ? (showPw ? "text" : "password") : type;
 
   return (
     <div className="relative">
@@ -33,11 +53,12 @@ const FloatingInput = ({ icon: Icon, label, type = "text", value, onChange }: {
         {label}
       </motion.label>
       <input
-        type={isPassword && !showPw ? "password" : "text"}
+        type={resolvedType}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
+        maxLength={maxLength}
         className={cn(
           "w-full h-14 pl-11 pr-12 pt-4 pb-1 rounded-xl bg-secondary/50 border text-foreground text-sm",
           "outline-none transition-all duration-300",
@@ -49,6 +70,59 @@ const FloatingInput = ({ icon: Icon, label, type = "text", value, onChange }: {
           {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
         </button>
       )}
+    </div>
+  );
+};
+
+const FloatingSelect = ({
+  icon: Icon,
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+}) => {
+  const [focused, setFocused] = useState(false);
+  const active = focused || value.length > 0;
+
+  return (
+    <div className="relative">
+      <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground z-10 pointer-events-none">
+        <Icon size={18} />
+      </div>
+      <motion.label
+        className="absolute left-11 pointer-events-none text-muted-foreground z-10"
+        animate={{
+          top: active ? "6px" : "50%",
+          y: active ? 0 : "-50%",
+          fontSize: active ? "10px" : "14px",
+        }}
+        transition={{ type: "spring", stiffness: 300, damping: 20 }}
+      >
+        {label}
+      </motion.label>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        className={cn(
+          "w-full h-14 pl-11 pr-4 pt-4 pb-1 rounded-xl bg-secondary/50 border text-foreground text-sm",
+          "outline-none transition-all duration-300 appearance-none",
+          focused ? "border-primary glow-emerald" : "border-border"
+        )}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 };
@@ -94,6 +168,25 @@ const SocialButton = ({ icon, label, note, disabled = false }: { icon: ReactNode
 );
 
 type AccountType = "rider" | "driver";
+type DriverSignupDetails = {
+  phone: string;
+  drivingLicenseNumber: string;
+  vehicleType: "" | "car" | "bike" | "auto";
+  vehicleModel: string;
+  vehicleColor: string;
+  vehicleNumber: string;
+  vehicleCapacity: string;
+};
+
+const DEFAULT_DRIVER_SIGNUP_DETAILS: DriverSignupDetails = {
+  phone: "",
+  drivingLicenseNumber: "",
+  vehicleType: "",
+  vehicleModel: "",
+  vehicleColor: "",
+  vehicleNumber: "",
+  vehicleCapacity: "4",
+};
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -101,12 +194,18 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [driverDetails, setDriverDetails] = useState<DriverSignupDetails>(DEFAULT_DRIVER_SIGNUP_DETAILS);
   const [loading, setLoading] = useState(false);
   const [verificationEmail, setVerificationEmail] = useState("");
   const [verificationAccountType, setVerificationAccountType] = useState<AccountType>("rider");
   const [showVerification, setShowVerification] = useState(false);
   const [verificationLoading, setVerificationLoading] = useState(false);
   const navigate = useNavigate();
+  const isDriverSignup = !isLogin && accountType === "driver";
+
+  const updateDriverDetails = (patch: Partial<DriverSignupDetails>) => {
+    setDriverDetails((current) => ({ ...current, ...patch }));
+  };
 
   useEffect(() => {
     const session = getSession();
@@ -158,6 +257,40 @@ const Auth = () => {
       return;
     }
 
+    const normalizedPhone = driverDetails.phone.replace(/\D/g, "").slice(0, 10);
+    const normalizedVehicleNumber = driverDetails.vehicleNumber.trim().toUpperCase();
+    const normalizedLicenseNumber = driverDetails.drivingLicenseNumber.trim().toUpperCase();
+    const vehicleCapacity = Number(driverDetails.vehicleCapacity);
+
+    if (!isLogin && accountType === "driver") {
+      if (
+        !normalizedPhone ||
+        !normalizedLicenseNumber ||
+        !driverDetails.vehicleModel.trim() ||
+        !driverDetails.vehicleColor.trim() ||
+        !normalizedVehicleNumber ||
+        !driverDetails.vehicleType
+      ) {
+        toast.error("Please fill in all driver registration details");
+        return;
+      }
+
+      if (normalizedPhone.length !== 10) {
+        toast.error("Driver phone number must be 10 digits");
+        return;
+      }
+
+      if (normalizedLicenseNumber.length < 6) {
+        toast.error("Enter a valid driving license number");
+        return;
+      }
+
+      if (!Number.isFinite(vehicleCapacity) || vehicleCapacity < 1 || vehicleCapacity > 8) {
+        toast.error("Vehicle capacity should be between 1 and 8");
+        return;
+      }
+    }
+
     setLoading(true);
 
     try {
@@ -176,7 +309,24 @@ const Auth = () => {
       }
 
       const normalizedEmail = email.trim().toLowerCase();
-      const signupPayload = await authApi.signup({ name, email: normalizedEmail, password, accountType });
+      const signupPayload = await authApi.signup({
+        name,
+        email: normalizedEmail,
+        password,
+        accountType,
+        driverDetails:
+          accountType === "driver"
+            ? {
+                phone: normalizedPhone,
+                drivingLicenseNumber: normalizedLicenseNumber,
+                vehicleModel: driverDetails.vehicleModel.trim(),
+                vehicleColor: driverDetails.vehicleColor.trim(),
+                vehicleNumber: normalizedVehicleNumber,
+                vehicleCapacity,
+                vehicleType: driverDetails.vehicleType as "car" | "bike" | "auto",
+              }
+            : undefined,
+      });
       const needsVerification = signupPayload.requiresEmailVerification || !signupPayload.token;
 
       if (!needsVerification && signupPayload.token) {
@@ -228,7 +378,7 @@ const Auth = () => {
         initial={{ opacity: 0, y: 30, scale: 0.95 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ type: "spring", stiffness: 200, damping: 20 }}
-        className="relative z-10 w-full max-w-md"
+        className={cn("relative z-10 w-full", isDriverSignup ? "max-w-3xl" : "max-w-md")}
       >
         <div className="glass rounded-3xl p-8 glow-emerald-soft">
           {/* Logo */}
@@ -275,6 +425,94 @@ const Auth = () => {
             >
               {!isLogin && (
                 <FloatingInput icon={User} label="Full Name" value={name} onChange={setName} />
+              )}
+              {isDriverSignup && (
+                <div className="rounded-2xl border border-border bg-secondary/20 p-4 space-y-4">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">Driver onboarding details</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      These details are required before a driver account can be used for rides.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FloatingInput
+                      icon={Phone}
+                      label="Phone Number"
+                      type="tel"
+                      value={driverDetails.phone}
+                      onChange={(value) =>
+                        updateDriverDetails({ phone: value.replace(/\D/g, "").slice(0, 10) })
+                      }
+                      maxLength={10}
+                    />
+                    <FloatingInput
+                      icon={BadgeCheck}
+                      label="Driving License Number"
+                      value={driverDetails.drivingLicenseNumber}
+                      onChange={(value) =>
+                        updateDriverDetails({
+                          drivingLicenseNumber: value.toUpperCase().slice(0, 25),
+                        })
+                      }
+                      maxLength={25}
+                    />
+                    <FloatingSelect
+                      icon={CarFront}
+                      label="What vehicle do you drive?"
+                      value={driverDetails.vehicleType}
+                      onChange={(value) =>
+                        updateDriverDetails({
+                          vehicleType: value as DriverSignupDetails["vehicleType"],
+                        })
+                      }
+                      options={[
+                        { value: "", label: "Select Bike / Auto / Car" },
+                        { value: "car", label: "Car" },
+                        { value: "auto", label: "Auto" },
+                        { value: "bike", label: "Bike" },
+                      ]}
+                    />
+                    <FloatingInput
+                      icon={Users}
+                      label="Seating Capacity"
+                      type="number"
+                      value={driverDetails.vehicleCapacity}
+                      onChange={(value) =>
+                        updateDriverDetails({
+                          vehicleCapacity: value.replace(/\D/g, "").slice(0, 1),
+                        })
+                      }
+                      maxLength={1}
+                    />
+                    <FloatingInput
+                      icon={Car}
+                      label="Vehicle Model"
+                      value={driverDetails.vehicleModel}
+                      onChange={(value) => updateDriverDetails({ vehicleModel: value })}
+                      maxLength={40}
+                    />
+                    <FloatingInput
+                      icon={Palette}
+                      label="Vehicle Color"
+                      value={driverDetails.vehicleColor}
+                      onChange={(value) => updateDriverDetails({ vehicleColor: value })}
+                      maxLength={30}
+                    />
+                    <div className="md:col-span-2">
+                      <FloatingInput
+                        icon={Hash}
+                        label="Vehicle Number"
+                        value={driverDetails.vehicleNumber}
+                        onChange={(value) =>
+                          updateDriverDetails({
+                            vehicleNumber: value.toUpperCase().slice(0, 20),
+                          })
+                        }
+                        maxLength={20}
+                      />
+                    </div>
+                  </div>
+                </div>
               )}
               <FloatingInput icon={Mail} label="Email Address" value={email} onChange={setEmail} />
               <FloatingInput icon={Lock} label="Password" type="password" value={password} onChange={setPassword} />

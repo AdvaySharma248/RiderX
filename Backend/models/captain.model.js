@@ -31,6 +31,12 @@ const captainSchema = new mongoose.Schema(
       minlength: 10,
       maxlength: 10,
     },
+    drivingLicenseNumber: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      minlength: 6,
+    },
     socketId: {
       type: String,
     },
@@ -46,6 +52,11 @@ const captainSchema = new mongoose.Schema(
       default: "inactive",
     },
     vehicle: {
+      model: {
+        type: String,
+        trim: true,
+        minlength: [2, "Model must be at least 2 characters long"],
+      },
       color: {
         type: String,
         required: true,
@@ -54,6 +65,8 @@ const captainSchema = new mongoose.Schema(
       number: {
         type: String,
         required: true,
+        trim: true,
+        uppercase: true,
         minlength: [3, "Plate must be at least 3 characters long"],
       },
       capacity: {

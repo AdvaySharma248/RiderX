@@ -299,13 +299,6 @@ const fallbackPhone = (seed: string) => {
   return `9${(digits + "1234567890").slice(0, 9)}`;
 };
 
-const fallbackVehicleNo = (seed: string) => {
-  const clean = seed.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  const head = (clean.slice(0, 4) || "RIDX").padEnd(4, "X");
-  const tail = `${Date.now()}`.slice(-4);
-  return `DL${head}${tail}`;
-};
-
 const splitName = (full: string) => {
   const parts = full.split(" ").map((s) => s.trim()).filter(Boolean);
   const firstRaw = parts[0] || "Rider";
@@ -606,7 +599,7 @@ const syncDriverPendingRides = async (session: SessionData, options?: { force?: 
 
 const userProfile = async () => (await request<{ user: { _id: string; rides?: BackendRide[] } }>("/user/profile")).user;
 const captainProfile = async () =>
-  (await request<{ captain: { _id: string; rides?: BackendRide[]; vehicle?: { color?: string; number?: string; capacity?: number; type?: string }; location?: { coordinates?: number[] } } }>("/captain/profile")).captain;
+  (await request<{ captain: { _id: string; rides?: BackendRide[]; vehicle?: { model?: string; color?: string; number?: string; capacity?: number; type?: string }; location?: { coordinates?: number[] } } }>("/captain/profile")).captain;
 
 const fareEstimate = async (
   pickup: string,
@@ -889,7 +882,21 @@ export const authApi = {
     } as AuthPayload;
   },
 
-  signup: async (payload: { name: string; email: string; password: string; accountType: AccountType }): Promise<SignupPayload> => {
+  signup: async (payload: {
+    name: string;
+    email: string;
+    password: string;
+    accountType: AccountType;
+    driverDetails?: {
+      phone: string;
+      drivingLicenseNumber: string;
+      vehicleModel: string;
+      vehicleColor: string;
+      vehicleNumber: string;
+      vehicleCapacity: number;
+      vehicleType: BackendVehicleType;
+    };
+  }): Promise<SignupPayload> => {
     const fullname = splitName(payload.name);
     const phone = fallbackPhone(`${payload.email}-${payload.name}`);
 
@@ -907,14 +914,25 @@ export const authApi = {
       };
     }
 
+    if (!payload.driverDetails) {
+      throw new ApiError("Driver registration details are required", 400);
+    }
+
     const res = await request<{ token?: string; requiresEmailVerification?: boolean; captain: { _id: string; fullname?: { firstname?: string; lastname?: string }; email?: string } }>("/captain/register", {
       method: "POST",
       body: {
         fullname,
         email: payload.email,
         password: payload.password,
-        phone,
-        vehicle: { color: "White", number: fallbackVehicleNo(payload.email), capacity: 4, type: "car" },
+        phone: payload.driverDetails.phone,
+        drivingLicenseNumber: payload.driverDetails.drivingLicenseNumber,
+        vehicle: {
+          model: payload.driverDetails.vehicleModel,
+          color: payload.driverDetails.vehicleColor,
+          number: payload.driverDetails.vehicleNumber,
+          capacity: payload.driverDetails.vehicleCapacity,
+          type: payload.driverDetails.vehicleType,
+        },
       },
     });
 
@@ -1811,7 +1829,9 @@ export const driverApi = {
       autoAccept: prefs.autoAccept,
       darkMode: prefs.darkMode,
       vehicle: {
-        model: `${cap(captain.vehicle?.color) || "Vehicle"} ${cap(captain.vehicle?.type) || ""}`.trim(),
+        model:
+          captain.vehicle?.model ||
+          `${cap(captain.vehicle?.color) || "Vehicle"} ${cap(captain.vehicle?.type) || ""}`.trim(),
         plate: captain.vehicle?.number || "Not assigned",
         category: captain.vehicle?.capacity ? `${captain.vehicle.capacity} seats` : "Standard",
       },
@@ -1828,7 +1848,9 @@ export const driverApi = {
       autoAccept: prefs.autoAccept,
       darkMode: prefs.darkMode,
       vehicle: {
-        model: `${cap(captain.vehicle?.color) || "Vehicle"} ${cap(captain.vehicle?.type) || ""}`.trim(),
+        model:
+          captain.vehicle?.model ||
+          `${cap(captain.vehicle?.color) || "Vehicle"} ${cap(captain.vehicle?.type) || ""}`.trim(),
         plate: captain.vehicle?.number || "Not assigned",
         category: captain.vehicle?.capacity ? `${captain.vehicle.capacity} seats` : "Standard",
       },
